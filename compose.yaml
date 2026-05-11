@@ -1,0 +1,87 @@
+name: conf2proxy
+
+services:
+  conf2proxy:
+    build:
+      context: .
+      args:
+        # Build-time values. They come from .env by default.
+        # For normal x86_64 servers, keep TARGETARCH=amd64 and TARGETVARIANT empty.
+        V2RAY_VERSION: "${V2RAY_VERSION:-5.49.0}"
+        TARGETARCH: "${TARGETARCH:-amd64}"
+        TARGETVARIANT: "${TARGETVARIANT:-}"
+    image: "conf2proxy:${APP_VERSION:-v4.1}"
+    container_name: conf2proxy
+    restart: unless-stopped
+
+    # Default is safe: bind host ports to localhost only.
+    # Change HOST_PROXY_BIND=0.0.0.0 only if you intentionally want LAN access.
+    # LOCAL_PROXY_PROTOCOL controls the local proxy generated inside V2Ray:
+    #   socks5 -> SOCKS5 proxy on PROXY_PORT
+    #   http   -> HTTP proxy on PROXY_PORT
+    #   both   -> SOCKS5 on SOCKS_PORT and HTTP on HTTP_PORT
+    ports:
+      - "${HOST_PROXY_BIND:-127.0.0.1}:${HOST_PROXY_PORT:-1080}:${PROXY_PORT:-1080}/tcp"
+      # This is useful when LOCAL_PROXY_PROTOCOL=both.
+      # It is safe but unused when the app is in socks5-only or http-only mode.
+      - "${HOST_PROXY_BIND:-127.0.0.1}:${HOST_HTTP_PORT:-1081}:${HTTP_PORT:-1081}/tcp"
+
+    environment:
+      TZ: "${TZ:-Asia/Tehran}"
+      LOGLEVEL: "${LOGLEVEL:-warning}"
+
+      # Choose local proxy: socks5, http, or both.
+      LOCAL_PROXY_PROTOCOL: "${LOCAL_PROXY_PROTOCOL:-socks5}"
+      INBOUND_LISTEN: "${INBOUND_LISTEN:-0.0.0.0}"
+      PROXY_PORT: "${PROXY_PORT:-1080}"
+
+      # Used only when LOCAL_PROXY_PROTOCOL=both.
+      SOCKS_PORT: "${SOCKS_PORT:-1080}"
+      HTTP_PORT: "${HTTP_PORT:-1081}"
+
+      ENABLE_SOCKS_UDP: "${ENABLE_SOCKS_UDP:-true}"
+      ENABLE_SNIFFING: "${ENABLE_SNIFFING:-true}"
+      ROUTE_PRIVATE_DIRECT: "${ROUTE_PRIVATE_DIRECT:-true}"
+      ENABLE_MUX: "${ENABLE_MUX:-false}"
+      MUX_CONCURRENCY: "${MUX_CONCURRENCY:-8}"
+
+      # Optional auth. Strongly recommended for LAN/public exposure.
+      PROXY_AUTH: "${PROXY_AUTH:-noauth}"
+      PROXY_USER: "${PROXY_USER:-}"
+      PROXY_PASS: "${PROXY_PASS:-}"
+
+      # Optional direct link input. If set, it has priority over mounted files.
+      V2RAY_LINK: "${V2RAY_LINK:-}"
+
+    volumes:
+      - ./v2ray:/etc/v2ray:ro
+
+    read_only: true
+    tmpfs:
+      - /work:size=16m,mode=0700,uid=10001,gid=10001
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - |
+          import os, socket
+          proto = os.environ.get('LOCAL_PROXY_PROTOCOL', 'socks5').lower()
+          if proto == 'http':
+              port = int(os.environ.get('PROXY_PORT') or os.environ.get('HTTP_PORT') or '1080')
+          elif proto == 'both':
+              port = int(os.environ.get('SOCKS_PORT') or '1080')
+          else:
+              port = int(os.environ.get('PROXY_PORT') or os.environ.get('SOCKS_PORT') or '1080')
+          s = socket.create_connection(('127.0.0.1', port), 3)
+          s.close()
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

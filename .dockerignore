@@ -1,0 +1,11 @@
+.git
+.gitignore
+__pycache__
+*.pyc
+*.pyo
+*.log
+.env
+.env.*
+v2ray/config.json
+v2ray/link.txt
+README.local.md
