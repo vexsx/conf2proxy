@@ -100,9 +100,7 @@ Use a native config with the correct core if you need these protocols.
 ├── docker-entrypoint.sh
 ├── link2config.py
 ├── v2ray/
-│   └── link.txt
-└── tests/
-    └── test_link2config.py
+    └── link.txt
 ```
 
 ## Run with SOCKS5 local proxy
