@@ -9,3 +9,4 @@ __pycache__
 v2ray/config.json
 v2ray/link.txt
 README.local.md
+tests

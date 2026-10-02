@@ -1,0 +1,16 @@
+# High-throughput mode: the container shares the host network stack, so client
+# traffic skips the docker-proxy/NAT hop and SOCKS5 UDP ASSOCIATE works (Xray
+# answers UDP on random ports that cannot be published in bridge mode).
+#
+# Enable it by adding this line to .env:
+#   COMPOSE_FILE=compose.yaml:compose.host.yaml
+#
+# The proxy then listens directly on HOST_PROXY_BIND:PROXY_PORT (and
+# HTTP_PORT in "both" mode); HOST_PROXY_PORT/HOST_HTTP_PORT are not used.
+# Requires Docker Compose v2.24+ (for !reset).
+services:
+  conf2proxy:
+    network_mode: host
+    ports: !reset []
+    environment:
+      INBOUND_LISTEN: "${HOST_PROXY_BIND:-127.0.0.1}"

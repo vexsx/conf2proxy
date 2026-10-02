@@ -7,19 +7,21 @@ services:
       args:
         # Build-time values. They come from .env by default.
         # For normal x86_64 servers, keep TARGETARCH=amd64 and TARGETVARIANT empty.
-        V2RAY_VERSION: "${V2RAY_VERSION:-5.49.0}"
+        XRAY_VERSION: "${XRAY_VERSION:-26.9.9}"
         TARGETARCH: "${TARGETARCH:-amd64}"
         TARGETVARIANT: "${TARGETVARIANT:-}"
-    image: "conf2proxy:${APP_VERSION:-v4.1}"
+    image: "conf2proxy:${APP_VERSION:-v5.0}"
     container_name: conf2proxy
     restart: unless-stopped
 
     # Default is safe: bind host ports to localhost only.
     # Change HOST_PROXY_BIND=0.0.0.0 only if you intentionally want LAN access.
-    # LOCAL_PROXY_PROTOCOL controls the local proxy generated inside V2Ray:
+    # LOCAL_PROXY_PROTOCOL controls the local proxy generated inside Xray:
     #   socks5 -> SOCKS5 proxy on PROXY_PORT
     #   http   -> HTTP proxy on PROXY_PORT
     #   both   -> SOCKS5 on SOCKS_PORT and HTTP on HTTP_PORT
+    # For maximum throughput (and SOCKS5 UDP), use host networking instead:
+    # set COMPOSE_FILE=compose.yaml:compose.host.yaml in .env.
     ports:
       - "${HOST_PROXY_BIND:-127.0.0.1}:${HOST_PROXY_PORT:-1080}:${PROXY_PORT:-1080}/tcp"
       # This is useful when LOCAL_PROXY_PROTOCOL=both.
@@ -29,6 +31,7 @@ services:
     environment:
       TZ: "${TZ:-Asia/Tehran}"
       LOGLEVEL: "${LOGLEVEL:-warning}"
+      ACCESS_LOG: "${ACCESS_LOG:-false}"
 
       # Choose local proxy: socks5, http, or both.
       LOCAL_PROXY_PROTOCOL: "${LOCAL_PROXY_PROTOCOL:-socks5}"
@@ -44,6 +47,18 @@ services:
       ROUTE_PRIVATE_DIRECT: "${ROUTE_PRIVATE_DIRECT:-true}"
       ENABLE_MUX: "${ENABLE_MUX:-false}"
       MUX_CONCURRENCY: "${MUX_CONCURRENCY:-8}"
+
+      # High-throughput / stall protection (see README).
+      TCP_USER_TIMEOUT_MS: "${TCP_USER_TIMEOUT_MS:-30000}"
+      CONN_IDLE: "${CONN_IDLE:-300}"
+      GRPC_HEALTH_CHECK: "${GRPC_HEALTH_CHECK:-true}"
+      BUFFER_SIZE_KB: "${BUFFER_SIZE_KB:-}"
+      TCP_CONGESTION: "${TCP_CONGESTION:-}"
+      TLS_FINGERPRINT: "${TLS_FINGERPRINT:-chrome}"
+      GOMEMLIMIT: "${GOMEMLIMIT:-}"
+
+      # Optional end-to-end healthcheck through the tunnel (plain http:// URL).
+      HEALTHCHECK_URL: "${HEALTHCHECK_URL:-}"
 
       # Optional auth. Strongly recommended for LAN/public exposure.
       PROXY_AUTH: "${PROXY_AUTH:-noauth}"
@@ -65,23 +80,16 @@ services:
     security_opt:
       - no-new-privileges:true
 
-    healthcheck:
-      test:
-        - CMD
-        - python3
-        - -c
-        - |
-          import os, socket
-          proto = os.environ.get('LOCAL_PROXY_PROTOCOL', 'socks5').lower()
-          if proto == 'http':
-              port = int(os.environ.get('PROXY_PORT') or os.environ.get('HTTP_PORT') or '1080')
-          elif proto == 'both':
-              port = int(os.environ.get('SOCKS_PORT') or '1080')
-          else:
-              port = int(os.environ.get('PROXY_PORT') or os.environ.get('SOCKS_PORT') or '1080')
-          s = socket.create_connection(('127.0.0.1', port), 3)
-          s.close()
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+    # Every proxied connection needs several file descriptors (client socket,
+    # upstream socket, splice pipes). Docker's default soft limit is 1024.
+    ulimits:
+      nofile:
+        soft: ${NOFILE_LIMIT:-1048576}
+        hard: ${NOFILE_LIMIT:-1048576}
+
+    # Without rotation, Docker keeps every log line forever and can fill the disk.
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
